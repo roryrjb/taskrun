@@ -117,7 +117,6 @@ class Task:
         task_type,
         depends_on,
         depends_order,
-        group,
         root_dir,
         hide,
     ):
@@ -129,19 +128,8 @@ class Task:
         self.task_type = task_type      # "shell" or "process"
         self.depends_on = depends_on    # list of label strings
         self.depends_order = depends_order  # "parallel" | "sequence"
-        self.group = group              # None | str | {"kind": ..., "isDefault": ...}
         self.root_dir = root_dir
         self.hide = hide                # bool — omit from interactive menu
-
-    def group_kind(self):
-        if isinstance(self.group, dict):
-            return self.group.get("kind")
-        return self.group  # str or None
-
-    def is_default_in_group(self):
-        if isinstance(self.group, dict):
-            return bool(self.group.get("isDefault", False))
-        return False
 
     def run(self, all_tasks=None, inputs_defs=None, _visited=None):
         """Execute the task, running dependsOn tasks first."""
@@ -233,8 +221,6 @@ def parse_tasks(root_dir, file_path):
         for key, value in options.get("env", {}).items():
             environ[key] = expand_variables(str(value), root_dir)
 
-        group = field("group")  # None | str | dict
-
         depends_on_raw = field("dependsOn", [])
         depends_on = [depends_on_raw] if isinstance(depends_on_raw, str) else list(depends_on_raw)
         depends_order = field("dependsOrder", "parallel")
@@ -251,7 +237,6 @@ def parse_tasks(root_dir, file_path):
                 task_type=task_type,
                 depends_on=depends_on,
                 depends_order=depends_order,
-                group=group,
                 root_dir=root_dir,
                 hide=hide,
             )
@@ -265,13 +250,6 @@ def get_task_by_label(tasks, label):
         if task.label == label:
             return task
     return None
-
-
-def find_default_group_task(tasks, kind):
-    """Return the isDefault task for a group kind, falling back to the first match."""
-    matches = [t for t in tasks if t.group_kind() == kind]
-    default = next((t for t in matches if t.is_default_in_group()), None)
-    return default or (matches[0] if matches else None)
 
 
 def list_task_labels(tasks):
@@ -301,8 +279,6 @@ def main():
     parser.add_argument("--label", help="Label of the task to run", type=str)
     parser.add_argument("--list", help="List all task labels", action="store_true")
     parser.add_argument("--edit", help="Edit tasks.json file", action="store_true")
-    parser.add_argument("--build", help="Run the default build task", action="store_true")
-    parser.add_argument("--test", help="Run the default test task", action="store_true")
     args = parser.parse_args()
 
     file_path = find_vscode_tasks()
@@ -326,14 +302,6 @@ def main():
         task_to_run = get_task_by_label(tasks, args.label)
         if not task_to_run:
             print(f"No task found with label: {args.label}")
-    elif args.build:
-        task_to_run = find_default_group_task(tasks, "build")
-        if not task_to_run:
-            print("No build task found.")
-    elif args.test:
-        task_to_run = find_default_group_task(tasks, "test")
-        if not task_to_run:
-            print("No test task found.")
     elif len(tasks) == 1:
         task_to_run = tasks[0]
     else:
