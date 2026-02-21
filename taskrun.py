@@ -8,57 +8,256 @@
 
 import json
 import os
+import platform
+import re
+import shlex
 import subprocess
 import argparse
 import sys
 from simple_term_menu import TerminalMenu
 
 
-class Task:
-    def __init__(self, label, command, cwd, env=None):
-        self.label = label
-        self.command = command
-        self.cwd = cwd
-        self.env = env if env is not None else os.environ.copy()
+def expand_variables(value, root_dir, resolved_inputs=None):
+    """Expand VS Code predefined variables in a string.
 
-    def run(self):
+    Supports: ${workspaceFolder}, ${workspaceFolderBasename}, ${userHome},
+              ${cwd}, ${env:VAR}, and ${input:ID} (when resolved_inputs given).
+    """
+    home_dir = os.path.expanduser("~")
+    cwd = os.getcwd()
+
+    value = value.replace("${userHome}", home_dir)
+    value = value.replace("${workspaceFolder}", root_dir)
+    value = value.replace("${workspaceFolderBasename}", os.path.basename(root_dir))
+    value = value.replace("${cwd}", cwd)
+
+    # Expand ${env:VAR} references
+    def expand_env(match):
+        return os.environ.get(match.group(1), "")
+
+    value = re.sub(r"\$\{env:([^}]+)\}", expand_env, value)
+
+    # Expand ${input:ID} references if resolved values are provided
+    if resolved_inputs:
+        def expand_input(match):
+            return resolved_inputs.get(match.group(1), match.group(0))
+
+        value = re.sub(r"\$\{input:([^}]+)\}", expand_input, value)
+
+    return value
+
+
+def collect_input_ids(strings):
+    """Return the set of ${input:ID} IDs referenced in any of the given strings."""
+    ids = set()
+    for s in strings:
+        ids.update(re.findall(r"\$\{input:([^}]+)\}", s))
+    return ids
+
+
+def resolve_inputs(input_ids, inputs_defs):
+    """Prompt the user for each required input and return a dict of id -> value."""
+    resolved = {}
+    for input_id in sorted(input_ids):
+        input_def = next((i for i in inputs_defs if i.get("id") == input_id), None)
+        if input_def is None:
+            continue
+
+        input_type = input_def.get("type", "promptString")
+        description = input_def.get("description", input_id)
+        default = input_def.get("default", "")
+
+        if input_type == "promptString":
+            prompt = description
+            if default:
+                prompt += f" [{default}]"
+            prompt += ": "
+            value = input(prompt).strip()
+            resolved[input_id] = value if value else default
+
+        elif input_type == "pickString":
+            raw_options = input_def.get("options", [])
+            labels, values = [], []
+            for opt in raw_options:
+                if isinstance(opt, str):
+                    labels.append(opt)
+                    values.append(opt)
+                else:
+                    label = opt.get("label", opt.get("value", ""))
+                    val = opt.get("value", opt.get("label", ""))
+                    labels.append(label)
+                    values.append(val)
+
+            cursor = values.index(default) if default in values else 0
+            print(description)
+            terminal_menu = TerminalMenu(labels, cursor_index=cursor)
+            choice = terminal_menu.show()
+            resolved[input_id] = values[choice] if choice is not None else default
+
+        # "command" input type requires VS Code internals — not supported
+
+    return resolved
+
+
+def get_platform_overrides(task_json):
+    """Return the platform-specific override block for the current OS, or {}."""
+    system = platform.system().lower()
+    key = {"linux": "linux", "darwin": "osx", "windows": "windows"}.get(system)
+    return task_json.get(key, {}) if key else {}
+
+
+class Task:
+    def __init__(
+        self,
+        label,
+        command,
+        args,
+        cwd,
+        env,
+        task_type,
+        depends_on,
+        depends_order,
+        group,
+        root_dir,
+        hide,
+    ):
+        self.label = label
+        self.command = command          # may still contain ${input:ID}
+        self.args = args                # may still contain ${input:ID}
+        self.cwd = cwd
+        self.env = env
+        self.task_type = task_type      # "shell" or "process"
+        self.depends_on = depends_on    # list of label strings
+        self.depends_order = depends_order  # "parallel" | "sequence"
+        self.group = group              # None | str | {"kind": ..., "isDefault": ...}
+        self.root_dir = root_dir
+        self.hide = hide                # bool — omit from interactive menu
+
+    def group_kind(self):
+        if isinstance(self.group, dict):
+            return self.group.get("kind")
+        return self.group  # str or None
+
+    def is_default_in_group(self):
+        if isinstance(self.group, dict):
+            return bool(self.group.get("isDefault", False))
+        return False
+
+    def run(self, all_tasks=None, inputs_defs=None, _visited=None):
+        """Execute the task, running dependsOn tasks first."""
+        if _visited is None:
+            _visited = set()
+
+        if self.label in _visited:
+            print(f"Warning: circular dependency detected for task '{self.label}', skipping.")
+            return 0
+        _visited.add(self.label)
+
+        # Run dependencies first
+        if self.depends_on and all_tasks:
+            for dep_label in self.depends_on:
+                dep = next((t for t in all_tasks if t.label == dep_label), None)
+                if dep is None:
+                    print(f"Warning: dependency task '{dep_label}' not found.")
+                    continue
+                ret = dep.run(all_tasks=all_tasks, inputs_defs=inputs_defs, _visited=set(_visited))
+                # For sequence order, stop on failure
+                if ret != 0 and self.depends_order == "sequence":
+                    print(f"Dependency '{dep_label}' failed (exit {ret}), aborting.")
+                    return ret
+
+        # Collect and resolve any ${input:ID} references
+        all_strings = [self.command] + self.args
+        input_ids = collect_input_ids(all_strings)
+        resolved_inputs = {}
+        if input_ids and inputs_defs:
+            resolved_inputs = resolve_inputs(input_ids, inputs_defs)
+
+        def subst(s):
+            return expand_variables(s, self.root_dir, resolved_inputs) if resolved_inputs else s
+
+        command = subst(self.command)
+        args = [subst(a) for a in self.args]
+        cwd = self.cwd
+
         print(f"Running task: {self.label}")
-        print(f"Command: {self.command}")
-        process = subprocess.Popen(self.command, cwd=self.cwd, env=self.env, shell=True)
+
+        if self.task_type == "process":
+            cmd = [command] + args
+            print(f"Command: {' '.join(cmd)}")
+            process = subprocess.Popen(cmd, cwd=cwd, env=self.env)
+        else:
+            # shell type: append args to the command string
+            if args:
+                full_cmd = command + " " + " ".join(shlex.quote(a) for a in args)
+            else:
+                full_cmd = command
+            print(f"Command: {full_cmd}")
+            process = subprocess.Popen(full_cmd, cwd=cwd, env=self.env, shell=True)
+
         process.wait()
+        return process.returncode
 
 
 def parse_tasks(root_dir, file_path):
-    # root dir is the parent of the .vscode dir that this file lives in
+    """Parse .vscode/tasks.json; return (list[Task], list[input_def])."""
+    with open(file_path, "r") as fh:
+        data = json.load(fh)
 
-    with open(file_path, "r") as file:
-        data = json.load(file)
-        tasks = []
-        for task_json in data.get("tasks", []):
-            label = task_json.get("label")
-            command = (
-                task_json.get("command")
-                .replace("${userHome}", os.path.expanduser("~"))
-                .replace("${workspaceFolder}", root_dir)
+    inputs_defs = data.get("inputs", [])
+    tasks = []
+
+    for task_json in data.get("tasks", []):
+        label = task_json.get("label", "")
+
+        # Platform-specific overrides (linux / osx / windows)
+        overrides = get_platform_overrides(task_json)
+
+        def field(key, default=None):
+            """Return platform override if present, otherwise task-level value."""
+            return overrides.get(key, task_json.get(key, default))
+
+        task_type = field("type", "shell")
+        command = field("command", "")
+        args = field("args", [])
+
+        # Expand predefined variables at parse time (${input:ID} deferred to run time)
+        command = expand_variables(str(command), root_dir)
+        args = [expand_variables(str(a), root_dir) for a in args]
+
+        # Merge options: task-level first, then platform overrides on top
+        options = {**task_json.get("options", {}), **overrides.get("options", {})}
+        cwd = expand_variables(options.get("cwd", root_dir), root_dir)
+
+        environ = os.environ.copy()
+        for key, value in options.get("env", {}).items():
+            environ[key] = expand_variables(str(value), root_dir)
+
+        group = field("group")  # None | str | dict
+
+        depends_on_raw = field("dependsOn", [])
+        depends_on = [depends_on_raw] if isinstance(depends_on_raw, str) else list(depends_on_raw)
+        depends_order = field("dependsOrder", "parallel")
+
+        hide = bool(field("hide", False))
+
+        tasks.append(
+            Task(
+                label=label,
+                command=command,
+                args=args,
+                cwd=cwd,
+                env=environ,
+                task_type=task_type,
+                depends_on=depends_on,
+                depends_order=depends_order,
+                group=group,
+                root_dir=root_dir,
+                hide=hide,
             )
-            cwd = (
-                task_json.get("options", {})
-                .get("cwd", os.getcwd())
-                .replace("${userHome}", os.path.expanduser("~"))
-                .replace("${workspaceFolder}", root_dir)
-            )
-            environ = os.environ.copy()
-            env = task_json.get("options", {}).get("env", {})
+        )
 
-            # go through all env variables and expand any that are in the form ${VAR}
-            for key, value in env.items():
-                environ[key] = value.replace(
-                    "${userHome}", os.path.expanduser("~")
-                ).replace("${workspaceFolder}", root_dir)
-
-            task = Task(label, command, cwd, environ)
-            tasks.append(task)
-        return tasks
+    return tasks, inputs_defs
 
 
 def get_task_by_label(tasks, label):
@@ -68,30 +267,29 @@ def get_task_by_label(tasks, label):
     return None
 
 
+def find_default_group_task(tasks, kind):
+    """Return the isDefault task for a group kind, falling back to the first match."""
+    matches = [t for t in tasks if t.group_kind() == kind]
+    default = next((t for t in matches if t.is_default_in_group()), None)
+    return default or (matches[0] if matches else None)
+
+
 def list_task_labels(tasks):
     for task in tasks:
         print(task.label)
 
 
 def find_vscode_tasks():
-    # Get the current working directory and the home directory
     current_dir = os.getcwd()
     home_dir = os.path.expanduser("~")
 
-    # Walk up from the current directory
     while current_dir != home_dir:
-        # Construct the .vscode/tasks.json path for the current directory
         tasks_json_path = os.path.join(current_dir, ".vscode", "tasks.json")
-
-        # Check if the tasks.json file exists
         if os.path.exists(tasks_json_path):
             print(f"Found: {tasks_json_path}")
             return tasks_json_path
-
-        # Move up one directory
         current_dir = os.path.dirname(current_dir)
 
-    # If we get here, the file was not found
     print("tasks.json not found in any .vscode directory up to the home directory.")
     return None
 
@@ -103,41 +301,56 @@ def main():
     parser.add_argument("--label", help="Label of the task to run", type=str)
     parser.add_argument("--list", help="List all task labels", action="store_true")
     parser.add_argument("--edit", help="Edit tasks.json file", action="store_true")
+    parser.add_argument("--build", help="Run the default build task", action="store_true")
+    parser.add_argument("--test", help="Run the default test task", action="store_true")
     args = parser.parse_args()
 
     file_path = find_vscode_tasks()
-
     if file_path is None:
         sys.exit(1)
 
     root_dir = os.path.dirname(os.path.dirname(os.path.realpath(file_path)))
-    tasks = parse_tasks(root_dir, file_path)
+    tasks, inputs_defs = parse_tasks(root_dir, file_path)
 
     if args.edit:
         subprocess.call(os.environ.get("EDITOR", "vim").split(" ") + [file_path])
-    elif args.list:
+        return
+
+    if args.list:
         list_task_labels(tasks)
+        return
+
+    task_to_run = None
+
+    if args.label:
+        task_to_run = get_task_by_label(tasks, args.label)
+        if not task_to_run:
+            print(f"No task found with label: {args.label}")
+    elif args.build:
+        task_to_run = find_default_group_task(tasks, "build")
+        if not task_to_run:
+            print("No build task found.")
+    elif args.test:
+        task_to_run = find_default_group_task(tasks, "test")
+        if not task_to_run:
+            print("No test task found.")
+    elif len(tasks) == 1:
+        task_to_run = tasks[0]
     else:
-        task_to_run = None
-        if args.label:
-            task_to_run = get_task_by_label(tasks, args.label)
-            if not task_to_run:
-                print(f"No task found with label: {args.label}")
-        elif len(tasks) == 1:
-            task_to_run = tasks[0]
-        else:
-            terminal_menu = TerminalMenu(
-                [task.label for task in tasks], search_key=None
-            )
-            choice = terminal_menu.show()
+        # Show only non-hidden tasks in the interactive menu
+        visible = [t for t in tasks if not t.hide]
+        if not visible:
+            print("No tasks available.")
+            return
+        terminal_menu = TerminalMenu([t.label for t in visible], search_key=None)
+        choice = terminal_menu.show()
+        if choice is not None:
+            task_to_run = visible[choice]
 
-            if choice is not None:
-                task_to_run = tasks[choice]
-
-        if task_to_run:
-            task_to_run.run()
-        else:
-            print("No task to run.")
+    if task_to_run:
+        task_to_run.run(all_tasks=tasks, inputs_defs=inputs_defs)
+    else:
+        print("No task to run.")
 
 
 if __name__ == "__main__":
