@@ -6,6 +6,17 @@ Taskrun is a (currently) very simple task runner that looks for `.vscode/tasks.j
 
 * [uv](https://docs.astral.sh/uv/) — required to run the script (uses `uv run --script`)
 
+## Installation
+
+Download the script directly to `~/.local/bin`:
+
+```sh
+curl -o ~/.local/bin/taskrun https://raw.githubusercontent.com/roryrjb/taskrun/master/taskrun
+chmod +x ~/.local/bin/taskrun
+```
+
+Make sure `~/.local/bin` is on your `$PATH`.
+
 ## Current Limitations
 
 * Unix only, since it relies on [simple-term-menu](https://github.com/IngoMeyer441/simple-term-menu) which doesn't work on Windows.
@@ -53,5 +64,5 @@ nnoremap <leader>t :Taskrun<Space>
 By default the plugin calls `taskrun` from your `$PATH`. If your installation lives elsewhere, point the plugin at it:
 
 ```vim
-let g:taskrun_executable = '/path/to/taskrun.py'
+let g:taskrun_executable = '/path/to/taskrun'
 ```
