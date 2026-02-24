@@ -187,10 +187,61 @@ class Task:
         return process.returncode
 
 
+def _strip_jsonc(text):
+    """Strip // and /* */ comments and trailing commas from JSONC text.
+
+    Correctly handles comment-like sequences inside string literals.
+    """
+    result = []
+    i = 0
+    n = len(text)
+
+    while i < n:
+        # Line comment
+        if text[i] == "/" and i + 1 < n and text[i + 1] == "/":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+        # Block comment — preserve newlines so line numbers stay intact
+        elif text[i] == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i < n:
+                if text[i] == "*" and i + 1 < n and text[i + 1] == "/":
+                    i += 2
+                    break
+                if text[i] == "\n":
+                    result.append("\n")
+                i += 1
+        # String literal — copy verbatim, respecting backslash escapes
+        elif text[i] == '"':
+            result.append(text[i])
+            i += 1
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    result.append(text[i])
+                    result.append(text[i + 1])
+                    i += 2
+                elif text[i] == '"':
+                    result.append(text[i])
+                    i += 1
+                    break
+                else:
+                    result.append(text[i])
+                    i += 1
+        else:
+            result.append(text[i])
+            i += 1
+
+    stripped = "".join(result)
+    # Remove trailing commas before ] or }
+    stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)
+    return stripped
+
+
 def parse_tasks(root_dir, file_path):
     """Parse .vscode/tasks.json; return (list[Task], list[input_def])."""
     with open(file_path, "r") as fh:
-        data = json.load(fh)
+        data = json.loads(_strip_jsonc(fh.read()))
 
     inputs_defs = data.get("inputs", [])
     tasks = []
