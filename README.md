@@ -2,17 +2,26 @@
 
 Taskrun is a (currently) very simple task runner that looks for `.vscode/tasks.json` files in your project and allows you to interactively run them.
 
-## Dependencies
-
-* [uv](https://docs.astral.sh/uv/) — required to run the script (uses `uv run --script`)
-
 ## Installation
 
-Download the script directly to `~/.local/bin`:
+### Recommended: uv tool install
 
 ```sh
-curl -o ~/.local/bin/taskrun https://raw.githubusercontent.com/roryrjb/taskrun/master/taskrun
-chmod +x ~/.local/bin/taskrun
+uv tool install git+https://github.com/roryrjb/taskrun
+```
+
+### pip install
+
+```sh
+pip install git+https://github.com/roryrjb/taskrun
+```
+
+### From source
+
+```sh
+git clone https://github.com/roryrjb/taskrun
+cd taskrun
+uv tool install .
 ```
 
 Make sure `~/.local/bin` is on your `$PATH`.

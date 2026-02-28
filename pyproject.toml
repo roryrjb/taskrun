@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "taskrun"
+version = "0.1.0"
+description = "Run VS Code tasks.json tasks from the terminal"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "simple-term-menu",
+    "json5",
+]
+
+[project.scripts]
+taskrun = "taskrun.cli:main"
+
+[project.urls]
+Repository = "https://github.com/roryrjb/taskrun"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1",
+    "poethepoet",
+]
+
+[tool.poe.tasks]
+lint = "ruff check src/"
+format = "ruff format src/"
+test = "pytest"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/taskrun"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
