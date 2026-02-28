@@ -47,9 +47,12 @@ def main():
             print("No tasks available.")
             return
         terminal_menu = TerminalMenu([t.label for t in visible], search_key=None)
-        choice = terminal_menu.show()
-        if choice is not None:
-            task_to_run = visible[choice]
+        try:
+            choice = terminal_menu.show()
+            if choice is not None:
+                task_to_run = visible[choice]
+        except ValueError:
+            sys.exit(0)
 
     if task_to_run:
         record_task_run(root_dir, task_to_run.label)
