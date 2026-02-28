@@ -10,9 +10,7 @@ from taskrun.parser import find_vscode_tasks, get_task_by_label, list_task_label
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run or list VS Code tasks from tasks.json"
-    )
+    parser = argparse.ArgumentParser(description="Run or list VS Code tasks from tasks.json")
     parser.add_argument("--label", help="Label of the task to run", type=str)
     parser.add_argument("--list", help="List all task labels", action="store_true")
     parser.add_argument("--edit", help="Edit tasks.json file", action="store_true")

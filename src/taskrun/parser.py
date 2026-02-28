@@ -49,9 +49,7 @@ def parse_tasks(root_dir, file_path):
             environ[key] = expand_variables(str(value), root_dir)
 
         depends_on_raw = field("dependsOn", [])
-        depends_on = (
-            [depends_on_raw] if isinstance(depends_on_raw, str) else list(depends_on_raw)
-        )
+        depends_on = [depends_on_raw] if isinstance(depends_on_raw, str) else list(depends_on_raw)
         depends_order = field("dependsOrder", "parallel")
 
         hide = bool(field("hide", False))

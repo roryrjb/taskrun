@@ -65,15 +65,15 @@ class Task:
         hide,
     ):
         self.label = label
-        self.command = command          # may still contain ${input:ID}
-        self.args = args                # may still contain ${input:ID}
+        self.command = command  # may still contain ${input:ID}
+        self.args = args  # may still contain ${input:ID}
         self.cwd = cwd
         self.env = env
-        self.task_type = task_type      # "shell" or "process"
-        self.depends_on = depends_on    # list of label strings
+        self.task_type = task_type  # "shell" or "process"
+        self.depends_on = depends_on  # list of label strings
         self.depends_order = depends_order  # "parallel" | "sequence"
         self.root_dir = root_dir
-        self.hide = hide                # bool — omit from interactive menu
+        self.hide = hide  # bool — omit from interactive menu
 
     def run(self, all_tasks=None, inputs_defs=None, _visited=None):
         """Execute the task, running dependsOn tasks first."""
@@ -92,9 +92,7 @@ class Task:
                 if dep is None:
                     print(f"Warning: dependency task '{dep_label}' not found.")
                     continue
-                ret = dep.run(
-                    all_tasks=all_tasks, inputs_defs=inputs_defs, _visited=set(_visited)
-                )
+                ret = dep.run(all_tasks=all_tasks, inputs_defs=inputs_defs, _visited=set(_visited))
                 # For sequence order, stop on failure
                 if ret != 0 and self.depends_order == "sequence":
                     print(f"Dependency '{dep_label}' failed (exit {ret}), aborting.")
