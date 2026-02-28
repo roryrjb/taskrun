@@ -3,10 +3,11 @@
 # requires-python = ">=3.8"
 # dependencies = [
 #   "simple-term-menu",
+#   "json5",
 # ]
 # ///
 
-import json
+import json5
 import os
 import platform
 import re
@@ -190,7 +191,7 @@ class Task:
 def parse_tasks(root_dir, file_path):
     """Parse .vscode/tasks.json; return (list[Task], list[input_def])."""
     with open(file_path, "r") as fh:
-        data = json.load(fh)
+        data = json5.load(fh)
 
     inputs_defs = data.get("inputs", [])
     tasks = []
