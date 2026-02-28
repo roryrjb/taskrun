@@ -10,10 +10,10 @@ Taskrun is a (currently) very simple task runner that looks for `.vscode/tasks.j
 uv tool install git+https://github.com/roryrjb/taskrun
 ```
 
-### pip install
+### pip/x install
 
 ```sh
-pip install git+https://github.com/roryrjb/taskrun
+pip/x install git+https://github.com/roryrjb/taskrun
 ```
 
 ### From source
@@ -29,7 +29,7 @@ Make sure `~/.local/bin` is on your `$PATH`.
 ## Current Limitations
 
 * Unix only, since it relies on [simple-term-menu](https://github.com/IngoMeyer441/simple-term-menu) which doesn't work on Windows.
-* Only partial coverage of VS code tasks spec
+* Only partial coverage of VS code tasks spec, partly by design, partly by omission
 
 ## Vim Plugin
 
