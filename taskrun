@@ -7,6 +7,7 @@
 # ]
 # ///
 
+import hashlib
 import json5
 import os
 import platform
@@ -15,6 +16,7 @@ import shlex
 import subprocess
 import argparse
 import sys
+import time
 from simple_term_menu import TerminalMenu
 
 
@@ -273,6 +275,62 @@ def find_vscode_tasks():
     return None
 
 
+def cache_path(root_dir):
+    """Return the path to the cache file for a given project root."""
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "taskrun")
+    os.makedirs(cache_dir, exist_ok=True)
+    key = hashlib.sha256(root_dir.encode()).hexdigest()[:16]
+    return os.path.join(cache_dir, f"{key}.json")
+
+
+def load_cache(root_dir):
+    """Load task run history for the given project root."""
+    path = cache_path(root_dir)
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as fh:
+                return json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"root_dir": root_dir, "tasks": {}}
+
+
+def save_cache(root_dir, cache):
+    """Persist task run history for the given project root."""
+    path = cache_path(root_dir)
+    try:
+        with open(path, "w") as fh:
+            json.dump(cache, fh, indent=2)
+    except OSError:
+        pass
+
+
+def record_task_run(root_dir, label):
+    """Increment the run count and update last_run timestamp for a task."""
+    cache = load_cache(root_dir)
+    stats = cache["tasks"].get(label, {"count": 0, "last_run": None})
+    stats["count"] += 1
+    stats["last_run"] = time.time()
+    cache["tasks"][label] = stats
+    save_cache(root_dir, cache)
+
+
+def sort_tasks_by_history(tasks, cache):
+    """Sort tasks: most-recently-run first, then by invocation count, then original order."""
+    task_stats = cache.get("tasks", {})
+
+    def sort_key(item):
+        index, task = item
+        stats = task_stats.get(task.label, {})
+        last_run = stats.get("last_run")
+        count = stats.get("count", 0)
+        if last_run is None:
+            return (1, 0, index)
+        return (0, -last_run, -count)
+
+    return [task for _, task in sorted(enumerate(tasks), key=sort_key)]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run or list VS Code tasks from tasks.json"
@@ -288,13 +346,14 @@ def main():
 
     root_dir = os.path.dirname(os.path.dirname(os.path.realpath(file_path)))
     tasks, inputs_defs = parse_tasks(root_dir, file_path)
+    cache = load_cache(root_dir)
 
     if args.edit:
         subprocess.call(os.environ.get("EDITOR", "vim").split(" ") + [file_path])
         return
 
     if args.list:
-        list_task_labels(tasks)
+        list_task_labels(sort_tasks_by_history(tasks, cache))
         return
 
     task_to_run = None
@@ -306,8 +365,8 @@ def main():
     elif len(tasks) == 1:
         task_to_run = tasks[0]
     else:
-        # Show only non-hidden tasks in the interactive menu
-        visible = [t for t in tasks if not t.hide]
+        # Show only non-hidden tasks in the interactive menu, sorted by history
+        visible = sort_tasks_by_history([t for t in tasks if not t.hide], cache)
         if not visible:
             print("No tasks available.")
             return
@@ -317,6 +376,7 @@ def main():
             task_to_run = visible[choice]
 
     if task_to_run:
+        record_task_run(root_dir, task_to_run.label)
         task_to_run.run(all_tasks=tasks, inputs_defs=inputs_defs)
     else:
         print("No task to run.")
