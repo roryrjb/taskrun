@@ -42,5 +42,25 @@ function! s:RunTask(task)
   execute 'Dispatch ' . l:exe . ' --label ' . shellescape(a:task)
 endfunction
 
+" Interactively choose a task and dispatch it
+function! s:ChooseAndRun()
+  let l:exe = s:Executable()
+  let l:choice = trim(system(l:exe . ' --choice-only'))
+  if v:shell_error != 0 || l:choice ==# ''
+    return
+  endif
+  execute 'Dispatch ' . l:exe . ' --label ' . shellescape(l:choice)
+endfunction
+
 " :Taskrun <task>   — run a task asynchronously with tab-completion
-command! -nargs=1 -complete=customlist,TaskrunComplete Taskrun call s:RunTask(<q-args>)
+" :Taskrun!         — interactively choose a task, then dispatch it
+command! -bang -nargs=? -complete=customlist,TaskrunComplete Taskrun
+      \ if <bang>0 && <q-args> ==# '' |
+      \   call s:ChooseAndRun() |
+      \ elseif <q-args> !=# '' |
+      \   call s:RunTask(<q-args>) |
+      \ else |
+      \   echohl ErrorMsg |
+      \   echom 'taskrun: no task specified. Usage: :Taskrun <task> or :Taskrun!' |
+      \   echohl None |
+      \ endif

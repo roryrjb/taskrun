@@ -14,6 +14,11 @@ def main():
     parser.add_argument("--label", help="Label of the task to run", type=str)
     parser.add_argument("--list", help="List all task labels", action="store_true")
     parser.add_argument("--edit", help="Edit tasks.json file", action="store_true")
+    parser.add_argument(
+        "--choice-only",
+        help="Print chosen task label without running it",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     file_path = find_vscode_tasks()
@@ -29,7 +34,8 @@ def main():
         return
 
     if args.list:
-        list_task_labels(sort_tasks_by_history(tasks, cache))
+        visible = [t for t in tasks if not t.hide]
+        list_task_labels(sort_tasks_by_history(visible, cache))
         return
 
     task_to_run = None
@@ -55,6 +61,9 @@ def main():
             sys.exit(0)
 
     if task_to_run:
+        if args.choice_only:
+            print(task_to_run.label)
+            return
         record_task_run(root_dir, task_to_run.label)
         task_to_run.run(all_tasks=tasks, inputs_defs=inputs_defs)
     else:
