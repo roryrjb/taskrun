@@ -1,5 +1,6 @@
 import os
 import platform
+import sys
 
 import json5
 
@@ -91,9 +92,8 @@ def find_vscode_tasks():
     while current_dir != home_dir:
         tasks_json_path = os.path.join(current_dir, ".vscode", "tasks.json")
         if os.path.exists(tasks_json_path):
-            print(f"Found: {tasks_json_path}")
             return tasks_json_path
         current_dir = os.path.dirname(current_dir)
 
-    print("tasks.json not found in any .vscode directory up to the home directory.")
+    print("tasks.json not found in any .vscode directory up to the home directory.", file=sys.stderr)
     return None
