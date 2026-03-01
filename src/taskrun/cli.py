@@ -34,7 +34,8 @@ def main():
         return
 
     if args.list:
-        list_task_labels(sort_tasks_by_history(tasks, cache))
+        visible = [t for t in tasks if not t.hide]
+        list_task_labels(sort_tasks_by_history(visible, cache))
         return
 
     task_to_run = None
